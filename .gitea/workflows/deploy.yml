@@ -54,3 +54,26 @@ jobs:
           rsync -avz --delete \
             -e "ssh -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts" \
             dist/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH"
+
+  sync-dev:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    container:
+      image: node:24-bookworm
+    permissions:
+      contents: write
+    steps:
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends git
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fast-forward dev to main
+        run: |
+          git fetch origin dev:dev
+          git checkout dev
+          git merge --ff-only origin/main
+          git push origin dev
