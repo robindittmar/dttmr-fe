@@ -63,6 +63,11 @@ interface AdditionalExperience {
   desc: string
 }
 
+interface Interest {
+  name: string
+  icon: 'terminal' | 'server' | 'git-branch' | 'cpu' | 'mountain' | 'dumbbell'
+}
+
 const SKILL_MAX = 8
 const LANGUAGE_MAX = 5
 
@@ -176,13 +181,13 @@ const languages: Language[] = [
   { name: 'Spanish', level: 'Beginner', rating: 1 },
 ]
 
-const interests: string[] = [
-  'Software Development',
-  'Linux',
-  'Open Source',
-  'Raspberry Pi',
-  'Rock climbing',
-  'Calisthenics',
+const interests: Interest[] = [
+  { name: 'Software Development', icon: 'terminal' },
+  { name: 'Linux', icon: 'server' },
+  { name: 'Open Source', icon: 'git-branch' },
+  { name: 'Raspberry Pi', icon: 'cpu' },
+  { name: 'Rock climbing', icon: 'mountain' },
+  { name: 'Calisthenics', icon: 'dumbbell' },
 ]
 
 const skills: Skill[] = [
@@ -273,7 +278,10 @@ const additionalExperiences: AdditionalExperience[] = [
       </p>
       <p class="row">
         <span class="row-label"><CvIcon name="linkedin" />LinkedIn</span>
-        <a href="https://www.linkedin.com/in/robin-dittmar-948424310/" target="_blank" rel="noopener"
+        <a
+          href="https://www.linkedin.com/in/robin-dittmar-948424310/"
+          target="_blank"
+          rel="noopener"
           >robin-dittmar</a
         >
       </p>
@@ -398,8 +406,11 @@ const additionalExperiences: AdditionalExperience[] = [
 
     <h1 class="section-heading"><CvIcon name="interests" />Interests</h1>
     <section class="card info-card">
-      <div class="tags">
-        <span v-for="interest in interests" :key="interest" class="tag">{{ interest }}</span>
+      <div class="interests">
+        <div v-for="interest in interests" :key="interest.name" class="interest-chip">
+          <span class="interest-icon"><CvIcon :name="interest.icon" /></span>
+          <span>{{ interest.name }}</span>
+        </div>
       </div>
     </section>
   </main>
@@ -812,13 +823,47 @@ const additionalExperiences: AdditionalExperience[] = [
   color: var(--c-text);
 }
 
-/* tags */
-.tags {
+/* interests */
+.interests {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.55rem;
 }
 
+.interest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.8rem 0.3rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-soft);
+  font-size: 0.8rem;
+  color: var(--c-text);
+  transition:
+    border-color 0.15s ease-in-out,
+    transform 0.15s ease-in-out;
+}
+
+.interest-chip:hover {
+  border-color: var(--c-accent-soft);
+  transform: translateY(-1px);
+}
+
+.interest-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--c-accent-bg);
+  color: var(--c-accent-strong);
+  font-size: 0.75rem;
+}
+
+/* tags */
 .tag {
   display: inline-flex;
   font-size: 0.72rem;
