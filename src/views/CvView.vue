@@ -274,7 +274,7 @@ const additionalExperiences: AdditionalExperience[] = [
       <p class="row">
         <span class="row-label"><CvIcon name="linkedin" />LinkedIn</span>
         <a href="https://www.linkedin.com/in/robin-dittmar-948424310/" target="_blank" rel="noopener"
-          >robindittmar</a
+          >robin-dittmar</a
         >
       </p>
       <p class="row">
