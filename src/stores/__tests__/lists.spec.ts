@@ -115,6 +115,7 @@ const listsApiMocks = vi.hoisted(() => ({
   removeUserFromListApi: vi.fn<() => Promise<unknown>>(),
   deleteListApi: vi.fn<() => Promise<unknown>>(),
   deleteListItemApi: vi.fn<() => Promise<unknown>>(),
+  orderListsApi: vi.fn<() => Promise<unknown>>(),
 }))
 
 vi.mock('@/api/lists', () => listsApiMocks)
@@ -529,6 +530,103 @@ describe('useListsStore', () => {
 
     expect(listsApiMocks.createListItemApi).toHaveBeenCalledTimes(2)
     expect(store.pendingCount).toBe(0)
+  })
+
+  it('sorts lists by position, breaking ties (e.g. two lists both at position 0) by newest first', async () => {
+    const store = useListsStore()
+    await fakeDb.lists.put({
+      id: 'list-b',
+      name: 'B',
+      position: 1,
+      created_at: '2024-01-01T00:00:00.000Z',
+      pendingSync: false,
+    })
+    await fakeDb.lists.put({
+      id: 'list-a',
+      name: 'A',
+      position: 0,
+      created_at: '2024-01-02T00:00:00.000Z',
+      pendingSync: false,
+    })
+    // Newly created lists always come back from the server at position 0 (so
+    // a new list is always on top), so a not-yet-synced local list (no
+    // position of its own yet, defaulting to 0) must also win the tiebreak
+    // against any existing position-0 list by virtue of being newest.
+    await fakeDb.lists.put({
+      id: 'list-new',
+      name: 'New',
+      created_at: '2024-01-03T00:00:00.000Z',
+      pendingSync: true,
+    })
+    await store.refresh()
+
+    expect(store.sortedLists.map((list) => list.id)).toEqual(['list-new', 'list-a', 'list-b'])
+  })
+
+  it('reorders lists optimistically and pushes the new order via the dedicated endpoint', async () => {
+    listsApiMocks.orderListsApi.mockResolvedValueOnce(undefined)
+    listsApiMocks.getListsApi.mockResolvedValueOnce([
+      { id: 'list-a', name: 'A', position: 1 },
+      { id: 'list-b', name: 'B', position: 0 },
+    ])
+
+    const store = useListsStore()
+    await fakeDb.lists.put({ id: 'list-a', name: 'A', position: 0, pendingSync: false })
+    await fakeDb.lists.put({ id: 'list-b', name: 'B', position: 1, pendingSync: false })
+    await store.refresh()
+
+    await store.reorderLists(['list-b', 'list-a'])
+
+    expect(store.sortedLists.map((list) => list.id)).toEqual(['list-b', 'list-a'])
+    expect(store.lists.every((list) => list.pendingSync)).toBe(true)
+
+    await store.sync()
+
+    expect(listsApiMocks.orderListsApi).toHaveBeenCalledWith({ list_ids: ['list-b', 'list-a'] })
+    expect(store.lists.find((list) => list.id === 'list-a')?.pendingSync).toBe(false)
+    expect(store.lists.find((list) => list.id === 'list-b')?.pendingSync).toBe(false)
+    expect(store.pendingCount).toBe(0)
+  })
+
+  it('supersedes a stale queued reorder instead of replaying both', async () => {
+    listsApiMocks.orderListsApi.mockResolvedValue(undefined)
+
+    const store = useListsStore()
+    await fakeDb.lists.put({ id: 'list-a', name: 'A', position: 0, pendingSync: false })
+    await fakeDb.lists.put({ id: 'list-b', name: 'B', position: 1, pendingSync: false })
+    await store.refresh()
+
+    await store.reorderLists(['list-b', 'list-a'])
+    await store.reorderLists(['list-a', 'list-b'])
+    expect(store.pendingCount).toBe(1)
+
+    await store.sync()
+
+    expect(listsApiMocks.orderListsApi).toHaveBeenCalledTimes(1)
+    expect(listsApiMocks.orderListsApi).toHaveBeenCalledWith({ list_ids: ['list-a', 'list-b'] })
+  })
+
+  it('remaps a queued reorder entry when one of its lists gets its server id assigned mid-flight', async () => {
+    listsApiMocks.createListApi.mockResolvedValueOnce({ id: 'server-list-1', name: 'New list' })
+    listsApiMocks.orderListsApi.mockResolvedValueOnce(undefined)
+    listsApiMocks.getListsApi.mockResolvedValueOnce([
+      { id: 'server-list-1', name: 'New list', position: 0 },
+      { id: 'list-a', name: 'A', position: 1 },
+    ])
+
+    const store = useListsStore()
+    const localList = await store.createList('New list')
+    await fakeDb.lists.put({ id: 'list-a', name: 'A', position: 0, pendingSync: false })
+    await store.refresh()
+
+    // Queues an "orderLists" entry referencing the not-yet-synced localList.id,
+    // created after the still-pending "createList" entry.
+    await store.reorderLists([localList.id, 'list-a'])
+    await store.sync()
+
+    expect(listsApiMocks.orderListsApi).toHaveBeenCalledWith({
+      list_ids: ['server-list-1', 'list-a'],
+    })
   })
 
   it('serializes pullListItems() behind an in-flight sync() so they never race on the same rows', async () => {

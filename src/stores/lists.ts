@@ -19,6 +19,7 @@ import {
   removeUserFromListApi,
   deleteListApi,
   deleteListItemApi,
+  orderListsApi,
 } from '@/api/lists'
 
 // A burst of rapid edits (ticking off several items, typing then blurring a
@@ -42,8 +43,18 @@ export const useListsStore = defineStore('lists', () => {
   const error = ref<string | null>(null)
   const pendingCount = ref(0)
 
+  // Lists carry a server-assigned `position`, rearranged via reorderLists().
+  // New lists (local-only or freshly synced) always come back as position 0
+  // - by design, so a new list always lands at the top - which means several
+  // lists can share a position. created_at desc breaks that tie, newest
+  // first, and also covers a local list created but not yet synced (no
+  // position of its own yet: defaults to 0 below).
   const sortedLists = computed(() =>
-    [...lists.value].sort((a, b) => (b.modified_at ?? '').localeCompare(a.modified_at ?? '')),
+    [...lists.value].sort((a, b) => {
+      const positionDiff = (a.position ?? 0) - (b.position ?? 0)
+      if (positionDiff !== 0) return positionDiff
+      return (b.created_at ?? '').localeCompare(a.created_at ?? '')
+    }),
   )
 
   function itemsForList(listId: string) {
@@ -245,6 +256,37 @@ export const useListsStore = defineStore('lists', () => {
     scheduleSync()
   }
 
+  // Applies a full reordering of the user's lists (e.g. from a drag-and-drop
+  // gesture). Positions are reassigned optimistically to every list in
+  // `orderedIds`, and marked pendingSync so a pull racing the queued
+  // "orderLists" entry can't clobber the optimistic order before it syncs.
+  async function reorderLists(orderedIds: string[]) {
+    await Promise.all(
+      orderedIds.map((id, index) => db.lists.update(id, { position: index, pendingSync: true })),
+    )
+    for (const [index, id] of orderedIds.entries()) {
+      const existing = lists.value.find((entry) => entry.id === id)
+      if (existing) {
+        existing.position = index
+        existing.pendingSync = true
+      }
+    }
+
+    // Only the latest requested order matters, so any not-yet-synced
+    // "orderLists" entry is superseded rather than left to also replay.
+    const staleEntries = await db.syncQueue.where('type').equals('orderLists').toArray()
+    if (staleEntries.length > 0) {
+      await db.syncQueue.bulkDelete(staleEntries.map((entry) => entry.id!))
+      pendingCount.value = Math.max(0, pendingCount.value - staleEntries.length)
+    }
+
+    await enqueue({
+      type: 'orderLists',
+      payload: { list_ids: orderedIds },
+    })
+    scheduleSync()
+  }
+
   async function deleteListItem(itemId: string) {
     await db.listItems.delete(itemId)
     removeLocalListItem(itemId)
@@ -290,6 +332,18 @@ export const useListsStore = defineStore('lists', () => {
       await db.syncQueue.update(entry.id!, {
         localListId: newId,
         payload: updatedPayload,
+      })
+    }
+
+    // "orderLists" entries aren't tied to a single localListId (they carry
+    // every list's id in payload.list_ids), so they need their own remap pass.
+    const affectedOrderEntries = await db.syncQueue.where('type').equals('orderLists').toArray()
+    for (const orderEntry of affectedOrderEntries) {
+      if (orderEntry.type !== 'orderLists' || !orderEntry.payload.list_ids.includes(oldId)) continue
+      await db.syncQueue.update(orderEntry.id!, {
+        payload: {
+          list_ids: orderEntry.payload.list_ids.map((id) => (id === oldId ? newId : id)),
+        },
       })
     }
   }
@@ -374,6 +428,17 @@ export const useListsStore = defineStore('lists', () => {
         await deleteListItemApi(entry.payload.id)
         break
       }
+      case 'orderLists': {
+        await orderListsApi(entry.payload)
+        await Promise.all(
+          entry.payload.list_ids.map((id) => db.lists.update(id, { pendingSync: false })),
+        )
+        const affectedIds = new Set(entry.payload.list_ids)
+        for (const list of lists.value) {
+          if (affectedIds.has(list.id)) list.pendingSync = false
+        }
+        break
+      }
     }
   }
 
@@ -384,7 +449,15 @@ export const useListsStore = defineStore('lists', () => {
     try {
       const queue = await db.syncQueue.orderBy('createdAt').toArray()
 
-      for (const entry of queue) {
+      for (const snapshotEntry of queue) {
+        // Re-read the entry rather than trusting the queue snapshot: an
+        // earlier iteration this same pass may have remapped a temporary id
+        // referenced in this entry's payload (e.g. remapListId rewriting a
+        // queued "orderLists" entry after its "createList" entry synced).
+        const entry =
+          snapshotEntry.id !== undefined
+            ? ((await db.syncQueue.get(snapshotEntry.id)) ?? snapshotEntry)
+            : snapshotEntry
         try {
           await processSyncEntry(entry)
           if (entry.id !== undefined) {
@@ -572,6 +645,7 @@ export const useListsStore = defineStore('lists', () => {
     removeUserFromList,
     deleteList,
     deleteListItem,
+    reorderLists,
     sync,
     pullFromServer,
     pullListItems,

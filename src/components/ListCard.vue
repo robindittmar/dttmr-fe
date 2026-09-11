@@ -5,10 +5,11 @@ import type { LocalList } from '@/database/db'
 import { useListsStore } from '@/stores/lists'
 import { useDismissableMenu } from '@/composables/useDismissableMenu'
 
-const props = defineProps<{ list: LocalList }>()
+const props = defineProps<{ list: LocalList; dragging?: boolean }>()
 const emit = defineEmits<{
   share: [list: LocalList]
   delete: [list: LocalList]
+  'handle-pointerdown': [event: PointerEvent]
 }>()
 
 const listsStore = useListsStore()
@@ -49,7 +50,24 @@ function handleDelete(event: Event) {
 </script>
 
 <template>
-  <div class="list-card card">
+  <div class="list-card card" :class="{ 'is-dragging': dragging }">
+    <button
+      type="button"
+      class="grab-handle"
+      aria-label="Reorder list"
+      title="Drag to reorder"
+      @pointerdown="emit('handle-pointerdown', $event)"
+    >
+      <svg class="grab-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+        <circle cx="9" cy="6" r="1.6" />
+        <circle cx="15" cy="6" r="1.6" />
+        <circle cx="9" cy="12" r="1.6" />
+        <circle cx="15" cy="12" r="1.6" />
+        <circle cx="9" cy="18" r="1.6" />
+        <circle cx="15" cy="18" r="1.6" />
+      </svg>
+    </button>
+
     <RouterLink :to="`/lists/${list.id}`" class="list-card-link">
       <div class="list-card-main">
         <h3>{{ list.name }}</h3>
@@ -142,6 +160,48 @@ function handleDelete(event: Event) {
 
 .list-card:hover {
   border-color: var(--c-border-hover);
+}
+
+.list-card.is-dragging {
+  border-color: var(--c-accent-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.grab-handle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 44px;
+  margin: -0.5rem -0.2rem -0.5rem -0.5rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--c-text-soft);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition:
+    background-color 0.15s ease-in-out,
+    color 0.15s ease-in-out;
+}
+
+.grab-handle:hover {
+  background-color: var(--c-bg-mute);
+  color: var(--c-heading);
+}
+
+.list-card.is-dragging .grab-handle {
+  cursor: grabbing;
+  color: var(--c-accent-strong);
+}
+
+.grab-icon {
+  display: block;
+  pointer-events: none;
 }
 
 .list-card-link {
