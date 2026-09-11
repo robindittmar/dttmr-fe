@@ -6,6 +6,7 @@ import type {
   CreateListItemPayload,
   SetListItemCompletedPayload,
   SetListItemTitlePayload,
+  OrderListsPayload,
 } from '@/types/list'
 
 export interface LocalList extends List {
@@ -40,6 +41,7 @@ type SyncOperationPayloads = {
   setListItemCompleted: SetListItemCompletedPayload
   deleteList: DeleteListPayload
   deleteListItem: DeleteListItemPayload
+  orderLists: OrderListsPayload
 }
 
 export type SyncOperationType = keyof SyncOperationPayloads

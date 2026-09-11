@@ -5,6 +5,7 @@ export interface List {
   modified_at?: string
   total_items?: number
   completed_items?: number
+  position?: number
 }
 
 export interface ListItem {
@@ -41,4 +42,8 @@ export interface AddUserToListPayload {
 export interface RemoveUserFromListPayload {
   list_id: string
   email: string
+}
+
+export interface OrderListsPayload {
+  list_ids: string[]
 }

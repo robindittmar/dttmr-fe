@@ -9,6 +9,7 @@ import type {
   SetListItemTitlePayload,
   AddUserToListPayload,
   RemoveUserFromListPayload,
+  OrderListsPayload,
 } from '@/types/list'
 
 export async function getListsApi(): Promise<List[]> {
@@ -74,6 +75,13 @@ export async function removeUserFromListApi(payload: RemoveUserFromListPayload):
   const response = await apiClient.delete('/lists/user', payload)
   if (!response.ok) {
     throw new Error(await extractErrorMessage(response, 'Failed to remove user from list'))
+  }
+}
+
+export async function orderListsApi(payload: OrderListsPayload): Promise<void> {
+  const response = await apiClient.post('/lists/order', payload)
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, 'Failed to reorder lists'))
   }
 }
 

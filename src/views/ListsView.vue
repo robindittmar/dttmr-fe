@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useListsStore } from '@/stores/lists'
 import type { LocalList } from '@/database/db'
 import ListCard from '@/components/ListCard.vue'
 import ShareListModal from '@/components/ShareListModal.vue'
 import DeleteListModal from '@/components/DeleteListModal.vue'
+import { useListDragReorder } from '@/composables/useListDragReorder'
 
 const listsStore = useListsStore()
 
@@ -13,6 +14,26 @@ const isCreating = ref(false)
 const createError = ref('')
 const sharingList = ref<LocalList | null>(null)
 const deletingList = ref<LocalList | null>(null)
+
+// Local, reorderable copy of the store's list order. Kept in sync with
+// listsStore.sortedLists except while a drag is in progress, so a
+// mid-sync-pass update (e.g. total_items ticking over) can't yank a row out
+// from under the user's finger.
+const displayedLists = ref<LocalList[]>([])
+const { draggingId, isPointerActive, dragOffsetPx, setItemRef, onPointerDown } = useListDragReorder(
+  displayedLists,
+  (orderedIds) => {
+    void listsStore.reorderLists(orderedIds)
+  },
+)
+
+watch(
+  () => listsStore.sortedLists,
+  (next) => {
+    if (draggingId.value === null) displayedLists.value = [...next]
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   listsStore.loadLists()
@@ -86,11 +107,24 @@ async function handleCreateList() {
 
     <p v-if="createError" class="banner banner-error">{{ createError }}</p>
 
-    <ul v-if="listsStore.sortedLists.length > 0" class="lists">
-      <li v-for="list in listsStore.sortedLists" :key="list.id">
-        <ListCard :list="list" @share="handleOpenShare(list)" @delete="handleOpenDelete(list)" />
+    <TransitionGroup v-if="displayedLists.length > 0" tag="ul" name="list-reorder" class="lists">
+      <li
+        v-for="list in displayedLists"
+        :key="list.id"
+        :ref="(el) => setItemRef(list.id, el as Element | null)"
+        class="list-row"
+        :class="{ 'no-transition': isPointerActive && draggingId === list.id }"
+        :style="draggingId === list.id ? { transform: `translateY(${dragOffsetPx}px)` } : undefined"
+      >
+        <ListCard
+          :list="list"
+          :dragging="draggingId === list.id"
+          @share="handleOpenShare(list)"
+          @delete="handleOpenDelete(list)"
+          @handle-pointerdown="onPointerDown(list.id, $event)"
+        />
       </li>
-    </ul>
+    </TransitionGroup>
 
     <div v-else class="empty-state">
       <p>No lists yet</p>
@@ -143,6 +177,22 @@ h1 {
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+.list-row {
+  transition:
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    z-index 0s;
+}
+
+.list-row.no-transition {
+  transition: none;
+  z-index: 2;
+  position: relative;
+}
+
+.list-reorder-move {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .empty-state {
